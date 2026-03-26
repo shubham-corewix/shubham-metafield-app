@@ -1,0 +1,332 @@
+<style>
+  .custom-filter-form-wrapper {
+    display: flex;
+    flex-wrap: wrap;
+    width: 50%;
+    margin: auto;
+    gap: 12px;
+    margin-bottom: 16px;
+    align-items: flex-end;
+  }
+  .custom-filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .custom-filter-group label {
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .custom-filter-group select {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    min-width: 150px;
+    cursor: pointer;
+    background: white;
+  }
+  .custom-filter-group select:focus {
+    outline: none;
+    border-color: #000;
+  }
+  #active-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .active-filter-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .active-filter-tag button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    color: #666;
+    padding: 0;
+  }
+  .active-filter-tag button:hover { color: #000; }
+  .clear-all-btn {
+    background: none;
+    border: 1px solid #ddd;
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    color: #666;
+  }
+  .clear-all-btn:hover { border-color: #000; color: #000; }
+</style>
+
+{% comment %} ── HIDE custom_filtter FROM SIDEBAR VIA JS ── {% endcomment %}
+<script>
+  function hideCustomFiltterFromSidebar() {
+
+    // Hide filter items from sidebar
+    document.querySelectorAll(
+      '.facets__item, details.js-filter, .facet-filters__item'
+    ).forEach(item => {
+      const index = item.getAttribute('data-index') || '';
+      const html = item.innerHTML;
+      if (index.includes('custom_filtter') || html.includes('custom_filtter')) {
+        item.style.display = 'none';
+      }
+    });
+
+    // Hide facet-remove elements containing custom_filtter
+    document.querySelectorAll('facet-remove').forEach(el => {
+      if (el.innerHTML.includes('custom_filtter')) {
+        el.style.display = 'none';
+      }
+    });
+
+    // Hide active-facets list items containing custom_filtter
+    document.querySelectorAll(
+      '.active-facets li, .active-facets__item'
+    ).forEach(el => {
+      if (el.innerHTML.includes('custom_filtter')) {
+        el.style.display = 'none';
+      }
+    });
+
+    // Hide active-facets__button containing custom_filtter
+    document.querySelectorAll('.active-facets__button').forEach(el => {
+      if (el.innerHTML.includes('custom_filtter') ||
+          (el.href && el.href.includes('custom_filtter'))) {
+        el.style.display = 'none';
+        // Also hide parent li
+        if (el.closest('li')) el.closest('li').style.display = 'none';
+      }
+    });
+
+    // Hide "Remove all" button if only custom_filtter filters are active
+    // Check if any non-custom_filtter active items exist
+    const allActiveItems = document.querySelectorAll(
+      '.active-facets li, .active-facets__item, facet-remove'
+    );
+    const hasNonCustomActive = [...allActiveItems].some(el =>
+      el.style.display !== 'none' &&
+      !el.innerHTML.includes('custom_filtter')
+    );
+
+    // If no non-custom filters active, hide the whole active-facets section
+    document.querySelectorAll('.active-facets').forEach(container => {
+      if (!hasNonCustomActive) {
+        container.style.display = 'none';
+      } else {
+        container.style.display = '';
+      }
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', hideCustomFiltterFromSidebar);
+
+  const observer = new MutationObserver(hideCustomFiltterFromSidebar);
+  observer.observe(document.body, { childList: true, subtree: true });
+</script>
+
+{% comment %} ── ALL PRODUCTS DATA ── {% endcomment %}
+<script>
+  window.__ALL_PRODUCTS__ = [
+    {% for product in collection.all_products limit: 250 %}
+    {
+      "id": "{{ product.id }}",
+      "metafields": {
+        {% for metafield in product.metafields.custom_filtter %}
+          {{ metafield[0] | json }}: {{ metafield[1].value | json }}
+          {% unless forloop.last %},{% endunless %}
+        {% endfor %}
+      }
+    }
+    {% unless forloop.last %},{% endunless %}
+    {% endfor %}
+  ];
+</script>
+
+{% comment %} ── ACTIVE FILTER TAGS ── {% endcomment %}
+<div id="active-filters-{{ block.id }}"></div>
+
+{% comment %} ── FILTER FORM ── {% endcomment %}
+<form id="custom-filter-form-{{ block.id }}" class="custom-filter-form-wrapper">
+  <span style="font-size:13px;color:#999;">Loading filters...</span>
+</form>
+
+<script>
+(function() {
+  const products = window.__ALL_PRODUCTS__ || [];
+  const form = document.getElementById('custom-filter-form-{{ block.id }}');
+  const activeFiltersContainer = document.getElementById('active-filters-{{ block.id }}');
+  const urlParams = new URL(window.location.href).searchParams;
+
+  // Collect all keys dynamically
+  const keysSet = new Set();
+  products.forEach(p => {
+    Object.keys(p.metafields).forEach(k => keysSet.add(k));
+  });
+  const keys = [...keysSet];
+
+  if (keys.length === 0) {
+    form.innerHTML = '<span style="font-size:13px;color:#999;">No custom filters found.</span>';
+    return;
+  }
+
+  // Collect unique values per key from ALL products
+  const valueMap = {};
+  keys.forEach(key => {
+    const values = new Set();
+    products.forEach(p => {
+      const val = p.metafields[key];
+      if (val !== null && val !== undefined && val !== '') {
+        values.add(String(val));
+      }
+    });
+    valueMap[key] = [...values].sort();
+  });
+
+  // Build dropdowns
+  form.innerHTML = '';
+  keys.forEach(key => {
+    const values = valueMap[key];
+    if (values.length === 0) return;
+
+    const label = key
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase());
+
+    const paramKey = `filter.p.m.custom_filtter.${key}`;
+    const currentVal = urlParams.get(paramKey) || '';
+
+    const group = document.createElement('div');
+    group.className = 'custom-filter-group';
+
+    const lbl = document.createElement('label');
+    lbl.textContent = label;
+    lbl.setAttribute('for', `filter-${key}`);
+
+    const select = document.createElement('select');
+    select.id = `filter-${key}`;
+    select.name = paramKey;
+    select.addEventListener('change', submitFilter);
+
+    const allOpt = document.createElement('option');
+    allOpt.value = '';
+    allOpt.textContent = `All ${label}`;
+    if (currentVal === '') allOpt.selected = true;
+    select.appendChild(allOpt);
+
+    values.forEach(val => {
+      const opt = document.createElement('option');
+      opt.value = val;
+      opt.textContent = val;
+      if (currentVal.toLowerCase() === val.toLowerCase()) opt.selected = true;
+      select.appendChild(opt);
+    });
+
+    group.appendChild(lbl);
+    group.appendChild(select);
+    form.appendChild(group);
+  });
+
+function submitFilter() {
+    const url = new URL(window.location.href);
+
+    // Only remove custom_filtter params — keep price, availability etc.
+    [...url.searchParams.keys()].forEach(k => {
+      if (k.includes('custom_filtter')) url.searchParams.delete(k);
+    });
+
+    // Add selected custom filter values
+    form.querySelectorAll('select').forEach(select => {
+      if (select.value !== '') {
+        url.searchParams.set(select.name, select.value);
+      }
+    });
+
+    window.location.href = url.toString();
+  }
+
+  window.removeFilter = function(paramKey) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete(paramKey);
+    window.location.href = url.toString();
+  };
+
+  function clearAllFilters() {
+    const url = new URL(window.location.href);
+    [...url.searchParams.keys()].forEach(k => {
+      if (k.startsWith('filter.')) url.searchParams.delete(k);
+    });
+    window.location.href = url.toString();
+  }
+
+  // ==== KEEP DROPDOWNS IN SYNC WITH THEME 'CLEAR ALL' / AJAX ====
+  function syncDropdowns() {
+    setTimeout(() => {
+      const currentParams = new URL(window.location.href).searchParams;
+      form.querySelectorAll('select').forEach(select => {
+        const urlVal = currentParams.get(select.name) || '';
+        if (select.value !== urlVal) {
+          select.value = urlVal;
+        }
+      });
+    }, 50); // slight delay to allow Theme JS to update the URL first
+  }
+
+  // 1. Intercept URL updates (Theme AJAX filtering)
+  const originalPushState = history.pushState;
+  const originalReplaceState = history.replaceState;
+  history.pushState = function() {
+    const result = originalPushState.apply(this, arguments);
+    syncDropdowns();
+    return result;
+  };
+  history.replaceState = function() {
+    const result = originalReplaceState.apply(this, arguments);
+    syncDropdowns();
+    return result;
+  };
+  window.addEventListener('popstate', syncDropdowns);
+
+  // 2. Fallback: Listen for clicks on common 'Clear all' theme buttons
+  document.addEventListener('click', function(e) {
+    const isThemeRemoveBtn = e.target.closest('.active-facets__button-wrapper') || 
+                             e.target.closest('a.facets__clear') || 
+                             e.target.closest('facet-remove');
+    if (isThemeRemoveBtn) {
+      syncDropdowns();
+    }
+  });
+
+})();
+</script>
+
+{% schema %}
+{
+  "name": "Custom Metafield Filter",
+  "target": "section",
+  "enabled_on": {
+    "templates": ["collection"]
+  },
+  "settings": [
+    {
+      "type": "header",
+      "content": "Custom Metafield Filter"
+    },
+    {
+      "type": "paragraph",
+      "content": "This block reads all the products on the collection page and creates filters for any custom metafield located in the 'custom_filtter' namespace."
+    }
+  ]
+}
+{% endschema %}
