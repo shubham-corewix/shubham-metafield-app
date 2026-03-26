@@ -6,7 +6,7 @@ import {
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
-import { DeliveryMethod } from "@shopify/shopify-app-react-router/server";
+
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET || "",
@@ -19,7 +19,7 @@ const shopify = shopifyApp({
   webhooks: {
     CUSTOMERS_DATA_REQUEST: {
       deliveryMethod: DeliveryMethod.Http,
-      callbackUrl: "/webhooks",
+      callbackUrl: "/webhooks",  // must match your route file name
     },
     CUSTOMERS_REDACT: {
       deliveryMethod: DeliveryMethod.Http,
